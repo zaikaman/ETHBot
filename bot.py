@@ -8,7 +8,6 @@ from datetime import datetime
 import json
 from dotenv import load_dotenv
 import os
-import aiohttp
 
 # Load environment variables
 load_dotenv()
@@ -39,13 +38,11 @@ async def init_db():
     print("\n=== Initializing Database ===")
     try:
         # Create connection pool
-        print(f"Connecting to database: {DATABASE_URL}")
         db_pool = await asyncpg.create_pool(DATABASE_URL)
         print("Database connection pool created successfully")
         
         # Create tables if they don't exist
         async with db_pool.acquire() as connection:
-            print("Creating signals table if it doesn't exist...")
             await connection.execute('''
                 CREATE TABLE IF NOT EXISTS signals (
                     id SERIAL PRIMARY KEY,
@@ -59,20 +56,13 @@ async def init_db():
                     current_price DECIMAL
                 )
             ''')
-            print("Table creation/verification complete")
     except Exception as e:
         print(f"Error initializing database: {e}")
-        import traceback
-        print(traceback.format_exc())
         raise
-    print("=== Database Initialization Complete ===\n")
 
 async def store_signal(signal_data):
     try:
         async with db_pool.acquire() as connection:
-            print("Executing database insert...")  # Debug log
-            print(f"Signal data being inserted: {json.dumps(signal_data, default=str, indent=2)}")
-            
             # Convert take_profit list to PostgreSQL array
             take_profit_array = signal_data['take_profit']
             if not isinstance(take_profit_array, list):
@@ -85,34 +75,18 @@ async def store_signal(signal_data):
             ''', 
             signal_data['type'],
             signal_data['entry_price'],
-            take_profit_array,  # Now properly typed as decimal array
+            take_profit_array,
             signal_data['stop_loss'],
             signal_data['timestamp'],
             signal_data['risk_percent'],
             signal_data['current_price']
             )
             
-            print(f"Insert successful, got ID: {result['id']}")  # Debug log
+            print(f"Insert successful, got ID: {result['id']}")
             
-            # Add the ID to the signal data
-            signal_data['id'] = result['id']
-            
-            # Broadcast the new signal to connected clients
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post('http://localhost:8000/broadcast', json=signal_data) as response:
-                        if response.status != 200:
-                            print(f"Failed to broadcast signal: {await response.text()}")
-                        else:
-                            print("Signal broadcast successful")
-            except Exception as e:
-                print(f"Error broadcasting signal: {e}")
     except Exception as e:
         print(f"Database error in store_signal: {e}")
-        print(f"Signal data that caused error: {json.dumps(signal_data, default=str)}")
-        import traceback
-        print(traceback.format_exc())  # Print full stack trace
-        raise  # Re-raise the exception to be caught by the caller
+        raise
 
 # Async function to check email
 async def check_email():
