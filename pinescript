@@ -1,0 +1,457 @@
+//@version=5
+strategy('ETHUSDT.P Binance King Strategy', overlay=true)
+
+// Variables
+var countBuy = 0
+var countSell = 0
+src = input(close, title='OHLC Type')
+i_fastEMA = input(12, title='Fast EMA')
+i_slowEMA = input(25, title='Slow EMA')
+i_ema200 = input(200, title='200 EMA')
+
+// Giá hiện tại
+currentPrice = close
+
+// Define stop loss change percentage variable
+stopLossChangePercent = input.float(0.0006, title="Stop Loss Change Percentage", minval=0) / 100
+
+// Inputs
+swingSizeR       = input.int(3, 'Bars Right-Left', inline='brl')
+swingSizeL       = input.int(3, '-', inline='brl')
+showBoxes        = input.bool(true, 'Show Boxes ', inline='aa')
+showSwingLines   = input.bool(true, 'Show Lines', inline='aa')
+showBubbles      = input.bool(true, 'Show Labels ', inline='bb')
+showVol          = input.bool(false, 'Show Volume', inline='bb')
+extendtilfilled  = input.bool(true, 'Extend Until Fill', inline='cc')
+
+// Conditions
+hidefilled       = input.bool(false, 'Hide Filled', group='Conditions')
+voltresh = input.int(0, 'Volume >', group='Conditions')
+// Appearance inputs
+showhighs        = input.bool(true, '', inline='sh', group='Appearance')
+showlows         = input.bool(true, '', inline='sl', group='Appearance')
+sellcol          = input.color(#aa2430, 'Lows (Line - Label - Box)', inline = 'sh', group='Appearance')
+buycol           = input.color(#66bb6a, 'Highs (Line - Label - Box)', inline='sl', group='Appearance')
+sellcolB         = input.color(#aa2430, '', inline='sh', group='Appearance')
+buycolB          = input.color(#66bb6a, '', inline = 'sl', group='Appearance')
+sellboxCol       = input.color(#80192231, '', inline = 'sh', group='Appearance')
+buyboxCol        = input.color(#66bb6a31, '', inline='sl', group='Appearance')
+lineStyle        = input.string('Dotted', 'Line Style + Width', ['Solid', 'Dashed', 'Dotted'], inline='l', group='Appearance')
+lineWid          = input.int(1, '', inline='l', group='Appearance')
+boxWid           = input.float(0.7, 'Box Width + Type ', step=0.1, inline='xx', group='Appearance')
+boxStyle         = input.string('TYPE 1', '', options=['TYPE 1', 'TYPE 2'], inline='xx', group='Appearance')
+labelsize        = input.string('Size: Tiny', 'Text Style        ', options = ['Size: Normal','Size: Large', 'Size: Small', 'Size: Tiny', 'Size: Auto' ], inline='txt', group = 'Appearance' )
+texthalign       = input.string('Right','', options = ['Middle', 'Right', 'Left'], inline='txt', group = 'Appearance')
+lookback         = input.bool(false, '', inline='lb')
+daysBack         = input.float(150, 'Lookback (D)               ',inline='lb')
+
+// Calculating inRange, used for lookback in days
+MSPD             = 24 * 60 * 60 * 1000
+lastBarDate      = timestamp(year(timenow), month(timenow), dayofmonth(timenow), hour(timenow), minute(timenow), second(timenow))
+thisBarDate      = timestamp(year, month, dayofmonth, hour, minute, second)
+daysLeft         = math.abs(math.floor((lastBarDate - thisBarDate) / MSPD))
+inRange          = lookback ? (daysLeft < daysBack) : true
+
+//Pivot calculations
+int prevHighIndex= na, int prevLowIndex= na, bool highActive= false, bool lowActive= false, bool h= false, bool l= false
+pivHi            = ta.pivothigh(high, swingSizeL, swingSizeR)
+pivLo            = ta.pivotlow(low, swingSizeL, swingSizeR)
+
+// Get the nearest swing high and swing low to the current bar
+var float nearestSwingHigh = na
+var float nearestSwingLow = na
+
+// Update nearest swings based on recent pivots
+if not na(pivHi)
+    nearestSwingHigh := pivHi
+if not na(pivLo)
+    nearestSwingLow := pivLo
+
+if not na(pivHi)
+    h := true
+    prevHighIndex := bar_index - swingSizeR
+if not na(pivLo)
+    l := true
+    prevLowIndex  := bar_index - swingSizeR
+
+CloseShort = low < low[1] and close > high[1]  and open <close[1]
+CloseLong = high > high[1] and close < low[1] and open >open[1]
+
+//Volume, OI, box width
+vol         = volume[swingSizeR]
+voltreshcond = voltresh > 0 ? vol > voltresh : true
+
+color CLEAR = color.rgb(0,0,0,100)
+boxWid1     = 0.001 * boxWid
+
+// Styles
+boxStyle(x) =>
+    switch x
+        'TYPE 1' => h ? pivHi : l ? pivLo : na
+        'TYPE 2' => h ? pivHi * (1 - boxWid1) : l ? pivLo * (1 + boxWid1) : na
+lineStyle(x) =>
+    switch x
+        'Solid'  => line.style_solid
+        'Dashed' => line.style_dashed
+        'Dotted' => line.style_dotted
+switchtextsize(textsize) =>
+    switch textsize
+        'Size: Normal'  => size.normal
+        'Size: Small'   => size.small
+        'Size: Tiny'    => size.tiny
+        'Size: Auto'    => size.auto
+        'Size: Large'   => size.large
+switchhalign(texthalign) =>
+    switch texthalign
+        'Middle'        => text.align_center
+        'Right'         => text.align_right
+        'Left'          => text.align_left
+
+//Swing level labels
+var levelBoxes = array.new_box(), var levelLines = array.new_line()
+if h and inRange and showhighs and voltreshcond
+    hBox = box.new(prevHighIndex, pivHi * (1 + boxWid1), bar_index, boxStyle(boxStyle), 
+                   border_color = na, bgcolor = na,  // Đặt bgcolor thành color.none để ẩn ô màu
+                   text= (showVol ? str.tostring(vol, format.volume) : na),
+                   text_halign = switchhalign(texthalign), text_valign = text.align_center, 
+                   text_color = chart.fg_color, text_size = switchtextsize(labelsize))
+    hLine = line.new(prevHighIndex, pivHi, bar_index, pivHi, 
+                     color = showSwingLines ? sellcol : CLEAR, 
+                     style = lineStyle(lineStyle), width = lineWid)
+    array.push(levelBoxes, hBox)
+    array.push(levelLines, hLine)
+
+if l and inRange and showlows and voltreshcond
+    lBox = box.new(prevLowIndex, pivLo * (1 - boxWid1), bar_index, boxStyle(boxStyle), 
+                   border_color = na, bgcolor = na,  // Đặt bgcolor thành color.none để ẩn ô màu
+                   text= (showVol ? str.tostring(vol, format.volume) : na),
+                   text_halign = switchhalign(texthalign), text_valign = text.align_center, 
+                   text_color = chart.fg_color, text_size = switchtextsize(labelsize))
+    lLine = line.new(prevLowIndex, pivLo, bar_index, pivLo, 
+                     color = showSwingLines ? buycol : CLEAR, 
+                     style = lineStyle(lineStyle), width = lineWid)
+    array.push(levelBoxes, lBox)
+    array.push(levelLines, lLine)
+
+// Looping over the full array of lines and updating them, and deleting them if they have been touched
+size = array.size(levelBoxes)
+if size > 0
+    for i = 0 to size - 1
+        j = size - 1 - i
+        box = array.get(levelBoxes, j)
+        line = array.get(levelLines, j)
+        level = line.get_y2(line)
+        filled = (high >= level and low <= level)
+
+        if filled and extendtilfilled and not hidefilled
+            array.remove(levelLines, j)
+            array.remove(levelBoxes, j)
+            continue 
+
+        box.set_right(box, bar_index+1)
+        line.set_x2(line, bar_index+1)
+        if filled and hidefilled
+            array.remove(levelLines, j)
+            array.remove(levelBoxes, j)
+            line.delete(line)
+            box.delete(box)
+
+        if not filled and not extendtilfilled
+            array.remove(levelLines, j)
+            array.remove(levelBoxes, j)
+            continue 
+            box.set_right(box, bar_index[0]+4)
+            line.set_x2(line, bar_index[0]+4)
+
+// Deleting the oldest lines if array is too big 
+if array.size(levelBoxes) >= 500
+    int i = 0
+    while array.size(levelBoxes) >= 500
+        box = array.get(levelBoxes, i)
+        line = array.get(levelLines, i)
+        box.delete(box)
+        line.delete(line)
+        array.remove(levelBoxes, i)
+        array.remove(levelLines, i)
+        i += 1 
+
+i_tf_supertrend = input.timeframe("60", title="Supertrend Timeframe")
+
+// Calculate Supertrend with a selectable timeframe
+changeATR = input(title='Change ATR Calculation Method ?', defval=true)
+Periods = input(title='ATR Period', defval=10)
+Multiplier = input.float(title='ATR Multiplier', step=0.1, defval=3.0)
+
+src_supertrend = request.security(syminfo.tickerid, i_tf_supertrend, hl2)
+atr_supertrend = request.security(syminfo.tickerid, i_tf_supertrend, changeATR ? ta.atr(Periods) : ta.sma(ta.tr, Periods))
+
+up_supertrend = src_supertrend - Multiplier * atr_supertrend
+up1_supertrend = nz(up_supertrend[1], up_supertrend)
+up_supertrend := close[1] > up1_supertrend ? math.max(up_supertrend, up1_supertrend) : up_supertrend
+
+dn_supertrend = src_supertrend + Multiplier * atr_supertrend
+dn1_supertrend = nz(dn_supertrend[1], dn_supertrend)
+dn_supertrend := close[1] < dn1_supertrend ? math.min(dn_supertrend, dn1_supertrend) : dn_supertrend
+
+trend_supertrend = 1
+trend_supertrend := nz(trend_supertrend[1], trend_supertrend)
+trend_supertrend := trend_supertrend == -1 and close > dn1_supertrend ? 1 : trend_supertrend == 1 and close < up1_supertrend ? -1 : trend_supertrend
+
+// Plot Supertrend using the custom timeframe
+plot(trend_supertrend == 1 ? up_supertrend : na, title='Up Trend', style=plot.style_linebr, linewidth=2, color=color.new(color.green, 0))
+plot(trend_supertrend == 1 ? na : dn_supertrend, title='Down Trend', style=plot.style_linebr, linewidth=2, color=color.new(color.red, 0))
+
+allowLong = input(true, title="Allow Long Trades")
+allowShort = input(true, title="Allow Short Trades")
+
+// Allow the option to show single or double EMA
+i_bothEMAs = input(title='Show Both EMAs', defval=true)
+
+// Define EMAs
+v_fastEMA = ta.ema(src, i_fastEMA)
+v_slowEMA = ta.ema(src, i_slowEMA)
+v_ema200 = ta.ema(src, i_ema200)
+
+// Color the EMAs
+emaColor = v_fastEMA > v_slowEMA ? color.green : v_fastEMA < v_slowEMA ? color.red : #FF530D
+
+// Plot EMAs
+plot(i_bothEMAs ? na : v_fastEMA, title='Fast EMA', color=emaColor)
+plot(i_bothEMAs ? v_slowEMA : na, title='Slow EMA', color=emaColor)
+plot(v_ema200, title='200 EMA', color=color.blue, linewidth=2)
+
+// Buy and sell signals
+buy = v_fastEMA > v_slowEMA
+sell = v_fastEMA < v_slowEMA
+
+if buy
+    countBuy += 1
+    countSell := 0
+
+if sell
+    countSell += 1
+    countBuy := 0
+
+buysignal = countBuy < 2 and countBuy > 0 and countSell < 1 and buy and not buy[1]
+sellsignal = countSell > 0 and countSell < 2 and countBuy < 1 and sell and not sell[1]
+
+// MACD Parameters
+fastLength = input(26, title='MACD Fast Length')
+slowLength = input(100, title='MACD Slow Length')
+signalSmoothing = input(9, title='MACD Signal Smoothing')
+
+// Calculate MACD
+[macdLine, signalLine, macdHist] = ta.macd(close, fastLength, slowLength, signalSmoothing)
+
+// Plot MACD Histogram
+histColor = macdHist >= 0 ? (macdHist > macdHist[1] ? color.green : color.lime) : (macdHist < macdHist[1] ? color.red : color.maroon)
+// plot(macdHist, style=plot.style_histogram, color=histColor, linewidth=2, title="MACD Histogram")
+
+bearishEngulfing = close[1] > open[1] and open > close and open >= close[1] and open[1] >= close and open - close > close[1] - open[1]
+bullishEngulfing = open[1] > close[1] and close > open and close >= open[1] and close[1] >= open and close - open > open[1] - close[1]
+
+// Entry conditions
+longCondition = buy and macdHist > 0  and trend_supertrend == 1 and close > v_ema200 and close < nearestSwingHigh// and bullishEngulfing
+shortCondition = sell and macdHist < 0  and trend_supertrend == -1 and close < v_ema200 and close > nearestSwingLow// and bearishEngulfing
+
+// Variables to track whether the position is long or short
+var bool isLong = false
+var bool isShort = false
+
+// Add variables to track last trade information
+var string lastTradeDirection = ""
+var bool lastTradeClosedByReversal = false
+
+// Risk management parameters
+balance = input.float(1000.0, title="Account Balance")  // Default balance of $1000
+riskPercent = input.float(1.5, title="Risk Percent", minval=0.01, maxval=100)  // Default risk of 1.5%
+
+// Parameters
+float currentRiskPercent = riskPercent
+if (lastTradeClosedByReversal and ((strategy.position_size <= 0 and lastTradeDirection == "Long") or (strategy.position_size >= 0 and lastTradeDirection == "Short")))
+    currentRiskPercent := 0.75
+
+riskAmount = strategy.equity * (currentRiskPercent / 100)
+minStopLossDistance = close * 0.001  // Set a minimum stop-loss distance (0.1% of the price)
+
+// Tính ATR với chu kỳ 14
+atr = ta.atr(14)
+
+// Tính ATR trung bình trên 2016 nến gần nhất
+atrAvg = ta.sma(atr, 2016)
+
+// Biến cho mức stop loss
+float longStopLoss = na
+float shortStopLoss = na
+
+// Tính toán lowest và highest giá trong 3 nến gần nhất
+lowestLow3 = ta.lowest(low, 3)
+highestHigh3 = ta.highest(high, 3)
+
+// Điều kiện kiểm tra ATR hiện tại so với ATR trung bình
+if (atr > atrAvg)
+    // Nếu ATR hiện tại cao hơn trung bình, dùng lowest/highest giá trong 3 nến gần nhất
+    longStopLoss := lowestLow3
+    shortStopLoss := highestHigh3
+else
+    // Nếu ATR hiện tại thấp hơn hoặc bằng trung bình, dùng nearestSwingLow và nearestSwingHigh
+    longStopLoss := nearestSwingLow
+    shortStopLoss := nearestSwingHigh
+
+// Kiểm tra xem thanh hiện tại có chứa giá trị high/low để dừng giao dịch nếu xảy ra
+isCurrentBarSwingLow = (low == longStopLoss) // Nếu giá thấp nhất trong thanh hiện tại trùng với longStopLoss
+isCurrentBarSwingHigh = (high == shortStopLoss) // Nếu giá cao nhất trong thanh hiện tại trùng với shortStopLoss
+
+// Điều kiện cho phép giao dịch (không giao dịch nếu thanh hiện tại chứa swing high/low)
+canOpenTrade = not (isCurrentBarSwingLow or isCurrentBarSwingHigh)
+
+// Add condition to check if stoploss equals entry
+canOpenTrade := canOpenTrade and (longStopLoss != close) and (shortStopLoss != close)
+
+// Ensure stop-loss distance is not too small
+longStopLossDistance = math.max(close - longStopLoss, minStopLossDistance)
+shortStopLossDistance = math.max(shortStopLoss - close, minStopLossDistance)
+
+// Risk-Reward Ratio
+riskRewardRatio = input.float(3.5, 'Risk/Reward Ratio', minval = 0.1, step = 0.1)
+
+longTakeProfit = close + longStopLossDistance * riskRewardRatio
+shortTakeProfit = close - shortStopLossDistance * riskRewardRatio
+
+// Calculate position size (qty) based on the risk amount and stop-loss distance
+longQty = riskAmount / longStopLossDistance  // Qty for long trade
+shortQty = riskAmount / shortStopLossDistance  // Qty for short trade
+
+// Define arrays to store boxes
+var box[] longBoxes = array.new_box(0)
+var box[] shortBoxes = array.new_box(0)
+
+// Execute long trades with Stop Loss, Take Profit, and quantity (qty)
+if (longCondition and strategy.position_size <= 0 and allowLong and canOpenTrade)
+    strategy.entry("Long", strategy.long, qty=longQty)  // Use calculated qty
+    strategy.exit("Long Closed", "Long", stop=longStopLoss, limit=longTakeProfit)
+    isLong := true
+    isShort := false  // Reset the short flag when entering a long trade
+    lastTradeDirection := "Long"
+    lastTradeClosedByReversal := false
+
+    // Create a green box from entry to take profit (top-left to bottom-right)
+    longBoxTP = box.new(left=bar_index, top=longTakeProfit, right=bar_index + 5, bottom=close, bgcolor=color.new(color.green, 70), border_color=color.green)
+    array.push(longBoxes, longBoxTP)
+    
+    // Adjust the size of the box to make sure it spans multiple bars and retains its position
+    box.set_lefttop(longBoxTP, bar_index, longTakeProfit)
+    box.set_rightbottom(longBoxTP, bar_index + 5, close)
+
+    // Create a red box from entry to stop loss (top-left to bottom-right)
+    longBoxSL = box.new(left=bar_index, top=close, right=bar_index + 5, bottom=longStopLoss, bgcolor=color.new(color.red, 70), border_color=color.red)
+    array.push(longBoxes, longBoxSL)
+
+    // Adjust the size of the stop loss box
+    box.set_lefttop(longBoxSL, bar_index, close)
+    box.set_rightbottom(longBoxSL, bar_index + 5, longStopLoss)
+
+    // Alert for long entry
+    if (trend_supertrend == 1)
+        alert("PAIR: #ETHUSD\nTYPE: buy\nENTRY: now\nSTOPLOSS: " + str.tostring(longStopLoss) + "\nTAKEPROFIT: " + str.tostring(longTakeProfit) + "\nCURRENT PRICE: " + str.tostring(currentPrice) + "\nRISK: " + str.tostring(currentRiskPercent) + "%", alert.freq_once_per_bar_close)
+
+// Execute short trades with Stop Loss, Take Profit, and quantity (qty)
+if (shortCondition and strategy.position_size >= 0 and allowShort and canOpenTrade)
+    strategy.entry("Short", strategy.short, qty=shortQty)  // Use calculated qty
+    strategy.exit("Short Closed", "Short", stop=shortStopLoss, limit=shortTakeProfit)
+    isShort := true
+    isLong := false  // Reset the long flag when entering a short trade
+    lastTradeDirection := "Short"
+    lastTradeClosedByReversal := false
+
+    // Create a green box from entry to take profit (top-left to bottom-right)
+    shortBoxTP = box.new(left=bar_index, top=close, right=bar_index + 5, bottom=shortTakeProfit, bgcolor=color.new(color.green, 70), border_color=color.green)
+    array.push(shortBoxes, shortBoxTP)
+    
+    // Adjust the size of the take profit box for short trade
+    box.set_lefttop(shortBoxTP, bar_index, close)
+    box.set_rightbottom(shortBoxTP, bar_index + 5, shortTakeProfit)
+
+    // Create a red box from entry to stop loss (top-left to bottom-right)
+    shortBoxSL = box.new(left=bar_index, top=shortStopLoss, right=bar_index + 5, bottom=close, bgcolor=color.new(color.red, 70), border_color=color.red)
+    array.push(shortBoxes, shortBoxSL)
+    
+    // Adjust the size of the stop loss box for short trade
+    box.set_lefttop(shortBoxSL, bar_index, shortStopLoss)
+    box.set_rightbottom(shortBoxSL, bar_index + 5, close)
+
+    // Alert for short entry
+    if (trend_supertrend == -1)
+        alert("PAIR: #ETHUSD\nTYPE: sell\nENTRY: now\nSTOPLOSS: " + str.tostring(shortStopLoss) + "\nTAKEPROFIT: " + str.tostring(shortTakeProfit) + "\nCURRENT PRICE: " + str.tostring(currentPrice) + "\nRISK: " + str.tostring(currentRiskPercent) + "%", alert.freq_once_per_bar_close)
+
+// Deleting old boxes if array size exceeds limit
+if array.size(longBoxes) > 500
+    boxToDelete = array.shift(longBoxes)
+    box.delete(boxToDelete)
+if array.size(shortBoxes) > 500
+    boxToDelete = array.shift(shortBoxes)
+    box.delete(boxToDelete)
+
+// Update boxes for active positions
+if isLong
+    longBoxTP = array.get(longBoxes, array.size(longBoxes) - 2)  // Take Profit box
+    longBoxSL = array.get(longBoxes, array.size(longBoxes) - 1)  // Stop Loss box
+    box.set_right(longBoxTP, bar_index + 1)
+    box.set_right(longBoxSL, bar_index + 1)
+
+if isShort
+    shortBoxTP = array.get(shortBoxes, array.size(shortBoxes) - 2)  // Take Profit box
+    shortBoxSL = array.get(shortBoxes, array.size(shortBoxes) - 1)  // Stop Loss box
+    box.set_right(shortBoxTP, bar_index + 1)
+    box.set_right(shortBoxSL, bar_index + 1)
+
+// Variable to track if the trade was closed due to reversal signals or take profit/stop loss
+var bool closedDueToReversal = false
+
+if (CloseLong and strategy.position_size > 0 and isLong)
+    strategy.close("Long", comment="Reversal")  // Close long position with comment "Long Closed"
+    alert("Closed long trade due to reversal signal!", alert.freq_once_per_bar_close)
+    isLong := false  // Reset the long position flag
+    lastTradeClosedByReversal := true  // Mark that trade was closed due to reversal
+    lastTradeDirection := "Long"
+
+if (CloseShort and strategy.position_size < 0 and isShort)
+    strategy.close("Short", comment="Reversal")  // Close short position with comment "Short Closed"
+    alert("Closed short trade due to reversal signal!", alert.freq_once_per_bar_close)
+    isShort := false  // Reset the short position flag
+    lastTradeClosedByReversal := true  // Mark that trade was closed due to reversal
+    lastTradeDirection := "Short"
+
+// Trigger alert when a long position hits take profit
+if (isLong and high >= longTakeProfit and not closedDueToReversal)
+    // Check if the position has actually closed
+    if (strategy.position_size == 0)
+        alert("Long trade closed!", alert.freq_once_per_bar_close)
+        isLong := false  // Reset the flag after closing the position
+
+// Trigger alert when a long position hits stop loss
+if (isLong and low <= longStopLoss and not closedDueToReversal)
+    // Check if the position has actually closed
+    if (strategy.position_size == 0)
+        alert("Long trade closed!", alert.freq_once_per_bar_close)
+        isLong := false  // Reset the flag after closing the position
+
+// Trigger alert when a short position hits take profit
+if (isShort and low <= shortTakeProfit and not closedDueToReversal)
+    // Check if the position has actually closed
+    if (strategy.position_size == 0)
+        alert("Short trade closed!", alert.freq_once_per_bar_close)
+        isShort := false  // Reset the flag after closing the position
+
+// Trigger alert when a short position hits stop loss
+if (isShort and high >= shortStopLoss and not closedDueToReversal)
+    // Check if the position has actually closed
+    if (strategy.position_size == 0)
+        alert("Short trade closed!", alert.freq_once_per_bar_close)
+        isShort := false  // Reset the flag after closing the position
+
+// Reset the closedDueToReversal flag once the position size changes
+if (strategy.position_size == 0)
+    closedDueToReversal := false  // Reset after trade closes
+
+// END OF SCRIPT

@@ -1,0 +1,2 @@
+pyTelegramBotAPI
+metaapi-cloud-sdk
