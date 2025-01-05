@@ -129,19 +129,31 @@ async def process_email(subject, body):
         print("\n=== Starting Email Processing ===")  # Debug log
         print(f"Email Body:\n{body}")  # Debug log
 
-        # Check if the email contains the word "hit"
+        # Check if the email contains the word "closed"
         if "closed" in body.lower():
             print("Found 'closed' in email")  # Debug log
             if body.strip():
                 bot.send_message(CHAT_ID, body)
-                print("Sent hit message to Telegram")  # Debug log
+                print("Sent closed message to Telegram")  # Debug log
+                
+                # Extract exit price from the message
+                exit_price = None
+                for line in body.strip().split("\n"):
+                    if "CLOSE PRICE:" in line:
+                        try:
+                            exit_price = float(line.split(":", 1)[1].strip())
+                            break
+                        except (ValueError, IndexError):
+                            print("Failed to parse exit price")
+                
                 async with db_pool.acquire() as connection:
                     await connection.execute('''
                         UPDATE signals 
-                        SET status = 'STOPPED' 
+                        SET status = 'STOPPED',
+                            exit_price = $1
                         WHERE status = 'ACTIVE'
-                    ''')
-                    print("Updated active signals to STOPPED")  # Debug log
+                    ''', exit_price)
+                    print(f"Updated active signals to STOPPED with exit price: {exit_price}")  # Debug log
             else:
                 print("Email body is empty, skipping...")
             return
@@ -152,13 +164,25 @@ async def process_email(subject, body):
             if body.strip():
                 bot.send_message(CHAT_ID, body)
                 print("Sent reversal message to Telegram")  # Debug log
+                
+                # Extract exit price from the message
+                exit_price = None
+                for line in body.strip().split("\n"):
+                    if "CLOSE PRICE:" in line:
+                        try:
+                            exit_price = float(line.split(":", 1)[1].strip())
+                            break
+                        except (ValueError, IndexError):
+                            print("Failed to parse exit price")
+                
                 async with db_pool.acquire() as connection:
                     await connection.execute('''
                         UPDATE signals 
-                        SET status = 'STOPPED' 
+                        SET status = 'STOPPED',
+                            exit_price = $1
                         WHERE status = 'ACTIVE'
-                    ''')
-                    print("Updated active signals to STOPPED")  # Debug log
+                    ''', exit_price)
+                    print(f"Updated active signals to STOPPED with exit price: {exit_price}")  # Debug log
             else:
                 print("Email body is empty, skipping...")
             return

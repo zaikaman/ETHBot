@@ -83,7 +83,8 @@ async def init_db():
                     timestamp TIMESTAMP NOT NULL,
                     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
                     risk_percent DECIMAL,
-                    current_price DECIMAL
+                    current_price DECIMAL,
+                    exit_price DECIMAL
                 )
             ''')
     except Exception as e:

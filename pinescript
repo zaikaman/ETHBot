@@ -410,14 +410,14 @@ var bool closedDueToReversal = false
 
 if (CloseLong and strategy.position_size > 0 and isLong)
     strategy.close("Long", comment="Reversal")  // Close long position with comment "Long Closed"
-    alert("Closed long trade due to reversal signal!", alert.freq_once_per_bar_close)
+    alert("Closed long trade due to reversal signal!\nCLOSE PRICE: " + str.tostring(close), alert.freq_once_per_bar_close)
     isLong := false  // Reset the long position flag
     lastTradeClosedByReversal := true  // Mark that trade was closed due to reversal
     lastTradeDirection := "Long"
 
 if (CloseShort and strategy.position_size < 0 and isShort)
     strategy.close("Short", comment="Reversal")  // Close short position with comment "Short Closed"
-    alert("Closed short trade due to reversal signal!", alert.freq_once_per_bar_close)
+    alert("Closed short trade due to reversal signal!\nCLOSE PRICE: " + str.tostring(close), alert.freq_once_per_bar_close)
     isShort := false  // Reset the short position flag
     lastTradeClosedByReversal := true  // Mark that trade was closed due to reversal
     lastTradeDirection := "Short"
@@ -426,28 +426,28 @@ if (CloseShort and strategy.position_size < 0 and isShort)
 if (isLong and high >= longTakeProfit and not closedDueToReversal)
     // Check if the position has actually closed
     if (strategy.position_size == 0)
-        alert("Long trade closed!", alert.freq_once_per_bar_close)
+        alert("Long trade closed!\nCLOSE PRICE: " + str.tostring(longTakeProfit), alert.freq_once_per_bar_close)
         isLong := false  // Reset the flag after closing the position
 
 // Trigger alert when a long position hits stop loss
 if (isLong and low <= longStopLoss and not closedDueToReversal)
     // Check if the position has actually closed
     if (strategy.position_size == 0)
-        alert("Long trade closed!", alert.freq_once_per_bar_close)
+        alert("Long trade closed!\nCLOSE PRICE: " + str.tostring(longStopLoss), alert.freq_once_per_bar_close)
         isLong := false  // Reset the flag after closing the position
 
 // Trigger alert when a short position hits take profit
 if (isShort and low <= shortTakeProfit and not closedDueToReversal)
     // Check if the position has actually closed
     if (strategy.position_size == 0)
-        alert("Short trade closed!", alert.freq_once_per_bar_close)
+        alert("Short trade closed!\nCLOSE PRICE: " + str.tostring(shortTakeProfit), alert.freq_once_per_bar_close)
         isShort := false  // Reset the flag after closing the position
 
 // Trigger alert when a short position hits stop loss
 if (isShort and high >= shortStopLoss and not closedDueToReversal)
     // Check if the position has actually closed
     if (strategy.position_size == 0)
-        alert("Short trade closed!", alert.freq_once_per_bar_close)
+        alert("Short trade closed!\nCLOSE PRICE: " + str.tostring(shortStopLoss), alert.freq_once_per_bar_close)
         isShort := false  // Reset the flag after closing the position
 
 // Reset the closedDueToReversal flag once the position size changes
