@@ -130,11 +130,18 @@ async def process_email(subject, body):
         print(f"Email Body:\n{body}")  # Debug log
 
         # Check if the email contains the word "hit"
-        if "hit" in body.lower():
-            print("Found 'hit' in email")  # Debug log
+        if "closed" in body.lower():
+            print("Found 'closed' in email")  # Debug log
             if body.strip():
                 bot.send_message(CHAT_ID, body)
                 print("Sent hit message to Telegram")  # Debug log
+                async with db_pool.acquire() as connection:
+                    await connection.execute('''
+                        UPDATE signals 
+                        SET status = 'STOPPED' 
+                        WHERE status = 'ACTIVE'
+                    ''')
+                    print("Updated active signals to STOPPED")  # Debug log
             else:
                 print("Email body is empty, skipping...")
             return
